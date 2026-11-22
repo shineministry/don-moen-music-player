@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#000000" />
+<meta name="description" content="A Spotify-styled music player with cloud queue and offline music cache." />
+<title>Don Moen Music Player</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%231db954'/%3E%3Crect x='20' y='26' width='5' height='18' rx='2.5' fill='%23000'/%3E%3Crect x='30' y='18' width='5' height='26' rx='2.5' fill='%23000'/%3E%3Crect x='40' y='24' width='5' height='20' rx='2.5' fill='%23000'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<noscript><div style="padding:40px;color:#fff;font-family:sans-serif">This music player requires JavaScript.</div></noscript>
+
+<div id="app">
+  <!-- ======================= LEFT SIDEBAR ======================= -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="32" height="32"><circle cx="32" cy="32" r="32" fill="#1db954"/><rect x="20" y="26" width="5" height="18" rx="2.5" fill="#000"/><rect x="30" y="18" width="5" height="26" rx="2.5" fill="#000"/><rect x="40" y="24" width="5" height="20" rx="2.5" fill="#000"/></svg>
+      </span>
+      <span class="brand-name">Don&nbsp;Moen <em>Music</em></span>
+    </div>
+
+    <nav class="nav-card" aria-label="Main">
+      <button class="nav-item active" data-view="home" id="navHome">
+        <span class="nav-ico" data-ico="home"></span><span class="nav-label">Home</span>
+      </button>
+      <button class="nav-item" data-view="search" id="navSearch">
+        <span class="nav-ico" data-ico="search"></span><span class="nav-label">Search</span>
+      </button>
+      <button class="nav-item" data-view="all" id="navLibrary">
+        <span class="nav-ico" data-ico="library"></span><span class="nav-label">Your Library</span>
+      </button>
+    </nav>
+
+    <div class="library-card">
+      <div class="library-head">
+        <span class="lib-title"><span class="nav-ico" data-ico="library"></span> Your Library</span>
+        <div class="lib-actions">
+          <button class="icon-btn sm" id="btnUploadLib" title="Upload songs"><span class="nav-ico" data-ico="plus"></span></button>
+          <button class="icon-btn sm" id="btnCreateList" title="Create playlist"><span class="nav-ico" data-ico="sort"></span></button>
+        </div>
+      </div>
+      <div class="lib-list" id="libList">
+        <button class="lib-item" data-view="liked">
+          <span class="lib-ico liked"><span class="nav-ico" data-ico="heartFill"></span></span>
+          <span class="lib-meta"><span class="lib-name">Liked Songs</span><span class="lib-sub" id="countLiked">0 songs</span></span>
+        </button>
+        <button class="lib-item" data-view="all">
+          <span class="lib-ico all"><span class="nav-ico" data-ico="note"></span></span>
+          <span class="lib-meta"><span class="lib-name">All Songs</span><span class="lib-sub" id="countAll">0 songs</span></span>
+        </button>
+        <button class="lib-item" data-view="queue">
+          <span class="lib-ico queue"><span class="nav-ico" data-ico="queue"></span></span>
+          <span class="lib-meta"><span class="lib-name">Up Next</span><span class="lib-sub" id="countQueue">0 in queue</span></span>
+        </button>
+      </div>
+    </div>
+
+    <button class="sync-status" id="syncStatus" title="Click to configure Cloudflare connection">
+      <span class="sync-dot" id="syncDot"></span>
+      <span class="sync-text" id="syncLabel">Connecting…</span>
+    </button>
+  </aside>
+
+  <!-- ======================= MAIN ======================= -->
+  <main class="main" id="main">
+    <header class="topbar">
+      <div class="nav-arrows">
+        <button class="round" id="btnBack" title="Go back"><span class="nav-ico" data-ico="chevL"></span></button>
+        <button class="round" id="btnFwd" title="Go forward"><span class="nav-ico" data-ico="chevR"></span></button>
+      </div>
+
+      <div class="topbar-search" id="topSearch">
+        <span class="nav-ico search-ico" data-ico="search"></span>
+        <input id="searchInput" type="search" placeholder="What do you want to play?" autocomplete="off" spellcheck="false" />
+        <button class="icon-btn sm" id="searchClear" title="Clear"><span class="nav-ico" data-ico="close"></span></button>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn-ghost" id="btnAddUrl">Add URL</button>
+        <button class="btn-green" id="btnUpload"><span class="nav-ico" data-ico="upload" data-size="16"></span> Upload</button>
+        <button class="avatar" id="btnAvatar" title="Profile">D</button>
+      </div>
+    </header>
+
+    <div class="content" id="content" tabindex="-1"><!-- views rendered here --></div>
+  </main>
+
+  <!-- ======================= RIGHT PANEL ======================= -->
+  <aside class="rightbar" id="rightbar" hidden>
+    <header class="rightbar-head">
+      <span id="rightTitle">Now playing</span>
+      <button class="round" id="btnCloseRight" title="Close"><span class="nav-ico" data-ico="close"></span></button>
+    </header>
+    <div class="rightbar-body" id="rightBody"></div>
+  </aside>
+</div>
+
+<!-- ======================= PLAYER BAR ======================= -->
+<footer class="player" id="player">
+  <div class="player-left">
+    <div class="np-cover" id="npCover"><span class="nav-ico" data-ico="note"></span></div>
+    <div class="np-meta">
+      <div class="np-title" id="npTitle">Nothing playing</div>
+      <div class="np-artist" id="npArtist">—</div>
+    </div>
+    <button class="icon-btn heart" id="btnLike" title="Save to Liked Songs"><span class="nav-ico" data-ico="heart"></span></button>
+  </div>
+
+  <div class="player-center">
+    <div class="controls">
+      <button class="icon-btn" id="btnShuffle" title="Shuffle"><span class="nav-ico" data-ico="shuffle"></span></button>
+      <button class="icon-btn" id="btnPrev" title="Previous"><span class="nav-ico" data-ico="prev"></span></button>
+      <button class="play-btn" id="btnPlay" title="Play"><span class="nav-ico" data-ico="play"></span></button>
+      <button class="icon-btn" id="btnNext" title="Next"><span class="nav-ico" data-ico="next"></span></button>
+      <button class="icon-btn" id="btnRepeat" title="Repeat"><span class="nav-ico" data-ico="repeat"></span></button>
+    </div>
+    <div class="progress-row">
+      <span class="time" id="curTime">0:00</span>
+      <div class="bar-wrap"><input type="range" id="seekBar" min="0" max="1000" value="0" step="1" aria-label="Seek" /></div>
+      <span class="time" id="durTime">0:00</span>
+    </div>
+  </div>
+
+  <div class="player-right">
+    <button class="icon-btn" id="btnQueue" title="Queue"><span class="nav-ico" data-ico="queue"></span></button>
+    <button class="icon-btn" id="btnMute" title="Mute"><span class="nav-ico" data-ico="volume"></span></button>
+    <div class="bar-wrap vol"><input type="range" id="volBar" min="0" max="100" value="100" step="1" aria-label="Volume" /></div>
+    <button class="icon-btn" id="btnFull" title="Full screen"><span class="nav-ico" data-ico="full"></span></button>
+  </div>
+</footer>
+
+<!-- ======================= RESUME MODAL ======================= -->
+<div class="overlay" id="resumeOverlay" hidden>
+  <div class="modal resume-modal" role="dialog" aria-modal="true" aria-labelledby="resumeTitle">
+    <button class="modal-x" id="btnResumeX" title="Dismiss"><span class="nav-ico" data-ico="close"></span></button>
+    <div class="resume-cover" id="resumeCover"><span class="nav-ico" data-ico="note"></span></div>
+    <div class="resume-eyebrow"><span class="nav-ico" data-ico="clock" data-size="14"></span> Continue listening</div>
+    <h2 id="resumeTitle">Last song</h2>
+    <p class="resume-sub" id="resumeSub">—</p>
+    <p class="resume-time" id="resumeTime">—</p>
+    <div class="modal-actions">
+      <button class="btn-ghost big" id="btnResumeNo">Start over</button>
+      <button class="btn-green big" id="btnResumeYes"><span class="nav-ico" data-ico="play" data-size="16"></span> Resume</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= UPLOAD MODAL ======================= -->
+<div class="overlay" id="uploadOverlay" hidden>
+  <div class="modal upload-modal" role="dialog" aria-modal="true" aria-labelledby="uploadHeading">
+    <header class="modal-head">
+      <h2 id="uploadHeading">Add songs</h2>
+      <button class="modal-x" id="btnCloseUpload" title="Close"><span class="nav-ico" data-ico="close"></span></button>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="files">Upload files</button>
+      <button class="tab" data-tab="url">Add from URL</button>
+    </div>
+
+    <div class="tab-pane" id="paneFiles">
+      <div class="dropzone" id="dropZone">
+        <span class="dz-ico"><span class="nav-ico" data-ico="upload" data-size="26"></span></span>
+        <p class="dz-title">Drag &amp; drop your songs here</p>
+        <p class="dz-sub">MP3, M4A, OGG, WAV, FLAC, OPUS — up to 100 MB each</p>
+        <button class="btn-green" id="btnBrowse">Choose files</button>
+        <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.ogg,.wav,.flac,.opus,.aac" multiple hidden />
+      </div>
+      <div class="upload-list" id="uploadList"></div>
+      <p class="pane-hint" id="uploadTarget">Files are stored in your Cloudflare R2 bucket.</p>
+    </div>
+
+    <div class="tab-pane" id="paneUrl" hidden>
+      <label class="field">
+        <span>Song URL <em>(direct link to an audio file)</em></span>
+        <input type="url" id="urlInput" placeholder="https://example.com/my-song.mp3" />
+      </label>
+      <div class="field-row">
+        <label class="field"><span>Title</span><input type="text" id="urlTitle" placeholder="Song title" /></label>
+        <label class="field"><span>Artist</span><input type="text" id="urlArtist" placeholder="Artist" /></label>
+      </div>
+      <button class="btn-green" id="btnAddUrlGo">Add to library</button>
+      <p class="pane-hint">URL songs are saved in your library list; the file itself is streamed from that address and cached after first play.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= DRAG OVERLAY / TOASTS ======================= -->
+<div class="drag-overlay" id="dragOverlay" hidden><div class="drag-inner"><span class="nav-ico" data-ico="upload" data-size="44"></span>Drop songs to add them</div></div>
+<div class="toast-host" id="toastHost"></div>
+
+<audio id="audio" preload="auto"></audio>
+
+<script src="js/config.js"></script>
+<script src="js/idb.js"></script>
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+name = "don-moen-player-api"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+# Optional: restrict browser calls to your deployed site.
+# Set to "*" while developing, then to e.g. "https://your-site.pages.dev"
+[vars]
+ALLOWED_ORIGIN = "*"
+
+# The R2 bucket that holds your songs + the queue (state.json)
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "don-moen-music"
+
+# Protect uploads/queue-writes with a secret:
+#   npx wrangler secret put API_TOKEN
+# then put the same value in js/config.js → PLAYER_CONFIG.API_TOKEN

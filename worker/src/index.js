@@ -16,6 +16,27 @@
 
 const STATE_KEY = "state.json";
 const SONGS_PREFIX = "songs/";
+const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|webm|mp4|m4b)$/i;
+
+/* A bucket object counts as a song: everything the app uploaded
+   (songs/…), plus audio files dropped straight into the bucket
+   root via the R2 dashboard. state.json / folders / other files
+   are never listed. */
+function isSongKey(key, httpMetadata) {
+  if (!key || key === STATE_KEY || key.endsWith("/")) return false;
+  if (key.startsWith(SONGS_PREFIX)) return true;
+  const type = (httpMetadata && httpMetadata.contentType) || "";
+  if (/^(audio|video)\//i.test(type)) return true;
+  return AUDIO_EXT.test(key);
+}
+
+/* Display title for objects uploaded without metadata: the file
+   name, extension stripped, underscores spaced out. */
+function titleFromKey(key) {
+  let base = key.split("/").pop();
+  base = base.replace(/\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|webm|mp4|m4b)$/i, "");
+  return base.replace(/_+/g, " ").replace(/\s+/g, " ").trim() || key;
+}
 
 class HttpError extends Error {
   constructor(message, status) {
@@ -85,8 +106,17 @@ async function handle(request, env, url) {
 
   /* ---------- library listing ---------- */
   if (path === "/api/library" && request.method === "GET") {
-    const listed = await env.BUCKET.list({ prefix: SONGS_PREFIX });
-    const entries = listed.objects.filter(o => !o.key.endsWith("/"));
+    // Whole bucket, not just songs/ — files uploaded straight to the
+    // bucket root (e.g. via the R2 dashboard) belong in the library too.
+    const entries = [];
+    let cursor;
+    do {
+      const page = await env.BUCKET.list(cursor ? { cursor } : { limit: 1000 });
+      for (const o of page.objects) {
+        if (isSongKey(o.key, o.httpMetadata)) entries.push(o);
+      }
+      cursor = page.truncated ? page.cursor : null;
+    } while (cursor);
 
     // list() may omit custom metadata → head() the objects that need it
     const songs = await Promise.all(entries.map(async (obj) => {
@@ -95,10 +125,13 @@ async function handle(request, env, url) {
         try { const head = await env.BUCKET.head(obj.key); meta = (head && head.customMetadata) || {}; }
         catch (e) { meta = {}; }
       }
-      const id = decodeURIComponent(obj.key.slice(SONGS_PREFIX.length));
+      const underSongs = obj.key.startsWith(SONGS_PREFIX);
+      const id = underSongs
+        ? decodeURIComponent(obj.key.slice(SONGS_PREFIX.length))
+        : obj.key;
       return {
         id,
-        title: meta.title || id,
+        title: meta.title || titleFromKey(obj.key),
         artist: meta.artist || "",
         album: meta.album || "",
         duration: Number(meta.duration) || 0,
@@ -148,17 +181,26 @@ async function handle(request, env, url) {
   if (path.startsWith("/api/songs/")) {
     const id = decodeURIComponent(path.slice("/api/songs/".length));
     if (!id || id.includes("..")) throw new HttpError("Invalid song id", 400);
-    const key = SONGS_PREFIX + id;
+
+    // App uploads live under songs/; dashboard uploads keep their full
+    // bucket key as the id. Try the prefix first, then the raw key.
+    const resolves = (o, k) => !!o && isSongKey(k, o.httpMetadata);
 
     if (request.method === "DELETE") {
       requireAuth(request, env);
+      let key = SONGS_PREFIX + id;
+      let found = await env.BUCKET.head(key);
+      if (!resolves(found, key)) { key = id; found = await env.BUCKET.head(key); }
+      if (!resolves(found, key)) throw new HttpError("Song not found", 404);
       await env.BUCKET.delete(key);
       return json({ ok: true });
     }
 
     if (request.method === "GET" || request.method === "HEAD") {
-      const obj = await env.BUCKET.get(key);
-      if (!obj) throw new HttpError("Song not found", 404);
+      let key = SONGS_PREFIX + id;
+      let obj = await env.BUCKET.get(key);
+      if (!resolves(obj, key)) { key = id; obj = await env.BUCKET.get(key); }
+      if (!resolves(obj, key)) throw new HttpError("Song not found", 404);
 
       const total = obj.size;
       const type = (obj.httpMetadata && obj.httpMetadata.contentType) || "audio/mpeg";
@@ -189,12 +231,12 @@ async function handle(request, env, url) {
           }
           if (!isNaN(start) && start < total && start <= end) {
             const ranged = await env.BUCKET.get(key, { range: { offset: start, length: end - start + 1 } });
-            const part = await ranged.arrayBuffer();
-            return new Response(part, {
+            // stream, don't buffer — these MP3s are up to ~175 MB
+            return new Response(ranged.body, {
               status: 206,
               headers: Object.assign({}, baseHeaders, {
                 "Content-Range": "bytes " + start + "-" + end + "/" + total,
-                "Content-Length": String(part.byteLength)
+                "Content-Length": String(end - start + 1)
               })
             });
           }
@@ -202,8 +244,8 @@ async function handle(request, env, url) {
         }
       }
 
-      const full = await obj.arrayBuffer();
-      return new Response(full, {
+      // full GET → stream the body (a 175 MB arrayBuffer would OOM the Worker)
+      return new Response(obj.body, {
         status: 200,
         headers: baseHeaders
       });

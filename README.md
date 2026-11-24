@@ -166,10 +166,16 @@ bottom-left of the sidebar and paste the URL; it is remembered in your browser.
 | GET | `/api/health` | – | connectivity check |
 | GET | `/api/state` | – | queue + playback state |
 | PUT | `/api/state` | ✔ | save queue + playback state |
-| GET | `/api/library` | – | list songs in the bucket |
+| GET | `/api/library` | – | list songs in the bucket (see note) |
 | POST | `/api/upload` | ✔ | upload a song (`X-Song-Title/Artist/Album/Duration`) |
 | GET | `/api/songs/:id` | – | stream a song (supports `Range`) |
 | DELETE | `/api/songs/:id` | ✔ | delete a song |
+
+**Note — where songs live:** the app uploads to keys under `songs/`, but the library scans the
+**whole bucket**. Audio files you drop directly into the bucket root via the R2 dashboard
+(`My Song.mp3`) appear in the library too — titled from the filename, with `state.json` and
+non-audio files always excluded. Dashboard uploads carry no metadata, so the app probes each
+file's duration in the background the first time it's loaded and remembers it in `state.json`.
 
 ## Troubleshooting
 

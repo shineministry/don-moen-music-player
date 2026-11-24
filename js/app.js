@@ -129,6 +129,10 @@ const scheduleSync = debounce(function () {
 }, 1500);
 
 function cloudPayload() {
+  const durations = {};
+  state.songs.forEach(s => {
+    if (s.source === "cloud" && s.duration > 0) durations[s.id] = Math.round(s.duration);
+  });
   return {
     version: 1,
     queue: state.queue.slice(),
@@ -139,6 +143,7 @@ function cloudPayload() {
     shuffle: state.shuffle,
     repeat: state.repeat,
     liked: Array.from(state.liked),
+    durations: durations,
     progress: state.progress,
     updatedAt: Date.now()
   };
@@ -166,6 +171,9 @@ function setSync(mode) {
   else if (mode === "local") { dot.classList.add("local"); label.textContent = "Local mode — click to connect"; state.connected = false; }
   else if (mode === "connecting") { label.textContent = "Connecting to Cloudflare…"; state.connected = false; }
   else { label.textContent = "Cloudflare offline — click to retry"; state.connected = false; }
+  $("#syncStatus").title = mode === "off" && lastConnectError
+    ? "Last error: " + lastConnectError + " — click to retry (auto-retries in the background)"
+    : label.textContent;
 }
 
 /* ================= playback ================= */
@@ -813,34 +821,81 @@ function toggleLike(id) {
 }
 
 /* ================= cloud connection ================= */
-async function connectCloud() {
+const RETRY_DELAYS = [3000, 8000, 15000, 30000, 60000]; // backoff schedule
+let retryDelayIdx = 0;
+let retryTimer = null;
+let connectingNow = false;
+let lastConnectError = "";
+
+function stopRetrying() {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  retryDelayIdx = 0;
+}
+
+function scheduleRetry() {
+  if (retryTimer || connectingNow) return;
+  const delay = RETRY_DELAYS[Math.min(retryDelayIdx, RETRY_DELAYS.length - 1)];
+  retryDelayIdx++;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    connectCloud({ quiet: true });
+  }, delay);
+}
+
+async function connectCloud(opts) {
+  opts = opts || {};
   if (!Store.config.api) {
     setSync("local");
     return;
   }
-  setSync("connecting");
-  const timeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+  if (connectingNow) return;
+  connectingNow = true;
+  const wasOff = !state.connected;
+  if (!opts.quiet) setSync("connecting");
+
+  const timeout = (p, ms) => Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("timed out after " + Math.round(ms / 1000) + "s")), ms))
+  ]);
+
   try {
-    await timeout(Store.health(), 8000);
+    await timeout(Store.health(), 12000);
     const results = await Promise.all([
-      timeout(Store.pullLibrary(), 8000),
-      timeout(Store.pullState(), 8000).catch(() => null)
+      timeout(Store.pullLibrary(), 12000),
+      timeout(Store.pullState(), 12000).catch(() => null)
     ]);
     mergeCloud(results[0], results[1]);
+    lastConnectError = "";
     setSync("on");
-    toast("Connected to Cloudflare R2", "ok");
+    stopRetrying();
+    if (!opts.quiet || wasOff) toast(wasOff && opts.quiet ? "Reconnected to Cloudflare R2" : "Connected to Cloudflare R2", "ok");
+    render();
+    learnCloudDurations();
   } catch (err) {
     console.warn("Cloudflare connection failed:", err);
+    lastConnectError = (err && err.message) || "network error";
     setSync("off");
-    toast("Cloudflare unreachable — running in local mode", "error");
+    if (opts.manual) toast("Connection failed: " + lastConnectError + " — retrying automatically", "error");
+    else if (!opts.quiet) toast("Cloudflare unreachable — will keep retrying automatically", "error");
+    scheduleRetry();
+  } finally {
+    connectingNow = false;
   }
 }
 
 function mergeCloud(lib, st) {
+  // durations we already learned locally (cloud library has none for
+  // bucket-root files until they've been probed/pushed to state.json)
+  const knownDur = {};
+  state.songs.forEach(s => { if (s.duration > 0) knownDur[s.id] = s.duration; });
+  const savedDur = (st && st.durations && typeof st.durations === "object") ? st.durations : {};
+
   const cloudSongs = (lib && lib.songs ? lib.songs : []).map(s => ({
     id: s.id, source: "cloud",
     title: s.title || s.id, artist: s.artist || "", album: s.album || "",
-    duration: Number(s.duration) || 0, addedAt: Number(s.addedAt) || Date.now(),
+    duration: Number(s.duration) || Number(savedDur[s.id]) || knownDur[s.id] || 0,
+    addedAt: Number(s.addedAt) || Date.now(),
     size: s.size
   }));
   const others = state.songs.filter(s => s.source !== "cloud");
@@ -860,6 +915,53 @@ function mergeCloud(lib, st) {
   }
   // queue entries whose songs vanished are dropped above; make index sane
   if (state.index >= state.queue.length) state.index = state.queue.length - 1;
+}
+
+/* Files uploaded straight to the bucket carry no duration metadata.
+   Probe them one at a time in the background (metadata-only request,
+   not a full download) so the library shows real times. */
+let durProbeStarted = false;
+const durProbed = new Set();       // ids attempted in the current pass
+const durAttempts = new Map();     // id → tries this session (cap: no endless retry)
+function learnCloudDurations() {
+  if (durProbeStarted) return;
+  const pending = state.songs.filter(s =>
+    s.source === "cloud" && !(s.duration > 0) && (durAttempts.get(s.id) || 0) < 2);
+  if (!pending.length) return;
+  durProbeStarted = true;
+
+  const probeNext = () => {
+    const song = pending.shift();
+    if (!song) {
+      durProbeStarted = false;
+      durProbed.clear();
+      return;
+    }
+    durProbed.add(song.id);
+    durAttempts.set(song.id, (durAttempts.get(song.id) || 0) + 1);
+    const a = new Audio();
+    let settled = false;
+    const finish = (d) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      a.onloadedmetadata = a.onerror = null;
+      a.removeAttribute("src");
+      if (d > 0 && (song.duration || 0) <= 0) {
+        song.duration = d;
+        durAttempts.delete(song.id);
+        persist(false);
+        renderContent();
+      }
+      setTimeout(probeNext, 600);
+    };
+    const timer = setTimeout(() => finish(0), 12000);
+    a.preload = "metadata";
+    a.onloadedmetadata = () => finish(isFinite(a.duration) && a.duration > 0 ? a.duration : 0);
+    a.onerror = () => finish(0);
+    resolveUrl(song).then(url => { a.src = url; }).catch(() => finish(0));
+  };
+  probeNext();
 }
 
 /* ================= boot ================= */

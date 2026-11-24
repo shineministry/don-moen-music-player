@@ -203,6 +203,7 @@ input { font-family: inherit; }
 }
 .sync-dot.on { background: var(--green); animation: pulse 2.4s infinite; }
 .sync-dot.local { background: #e0a030; }
+.sync-dot.offline { background: #4a9eff; }
 .sync-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @keyframes pulse {
   0% { box-shadow: 0 0 0 0 rgba(29, 185, 84, 0.45); }

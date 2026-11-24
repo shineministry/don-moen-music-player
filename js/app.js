@@ -121,6 +121,7 @@ function coverHTML(song, size) {
 /* ================= persistence ================= */
 function persist(sync) {
   Store.saveLocal(state);
+  localUpdatedAt = Date.now(); // offline edits must beat older cloud state
   if (sync !== false) scheduleSync();
 }
 const scheduleSync = debounce(function () {
@@ -168,6 +169,7 @@ function setSync(mode) {
   const dot = $("#syncDot"), label = $("#syncLabel");
   dot.className = "sync-dot";
   if (mode === "on") { dot.classList.add("on"); label.textContent = "Cloudflare R2 connected"; state.connected = true; }
+  else if (mode === "offline") { dot.classList.add("offline"); label.textContent = "Offline — songs play from cache"; state.connected = false; }
   else if (mode === "local") { dot.classList.add("local"); label.textContent = "Local mode — click to connect"; state.connected = false; }
   else if (mode === "connecting") { label.textContent = "Connecting to Cloudflare…"; state.connected = false; }
   else { label.textContent = "Cloudflare offline — click to retry"; state.connected = false; }
@@ -240,6 +242,11 @@ function togglePlay() {
     return;
   }
   if (audio.paused) {
+    if (!audio.currentSrc) {
+      // fresh page load: state was restored but no track is loaded yet
+      playAt(state.index, state.position || 0);
+      return;
+    }
     audio.play().catch(e => toast("Playback blocked: " + e.message, "error"));
   } else {
     audio.pause();
@@ -747,6 +754,7 @@ async function uploadFiles(files) {
   }
   persist();
   render();
+  startOfflineCache(); // a freshly uploaded song should also work offline
   if (added) {
     toast(added + (added === 1 ? " song added" : " songs added") + " to your library and queue", "ok");
     if (state.index < 0 && state.queue.length === added) playAt(0, 0);
@@ -867,18 +875,24 @@ async function connectCloud(opts) {
     ]);
     mergeCloud(results[0], results[1]);
     lastConnectError = "";
-    setSync("on");
+    const online = navigator.onLine;
+    setSync(online ? "on" : "offline");
     stopRetrying();
-    if (!opts.quiet || wasOff) toast(wasOff && opts.quiet ? "Reconnected to Cloudflare R2" : "Connected to Cloudflare R2", "ok");
+    if (online && (!opts.quiet || wasOff)) toast(wasOff && opts.quiet ? "Reconnected to Cloudflare R2" : "Connected to Cloudflare R2", "ok");
     render();
     learnCloudDurations();
+    startOfflineCache(); // keep every song available without a network
   } catch (err) {
     console.warn("Cloudflare connection failed:", err);
     lastConnectError = (err && err.message) || "network error";
-    setSync("off");
-    if (opts.manual) toast("Connection failed: " + lastConnectError + " — retrying automatically", "error");
-    else if (!opts.quiet) toast("Cloudflare unreachable — will keep retrying automatically", "error");
-    scheduleRetry();
+    if (!navigator.onLine) {
+      setSync("offline"); // no retries needed — 'online' event reconnects
+    } else {
+      setSync("off");
+      if (opts.manual) toast("Connection failed: " + lastConnectError + " — retrying automatically", "error");
+      else if (!opts.quiet) toast("Cloudflare unreachable — will keep retrying automatically", "error");
+      scheduleRetry();
+    }
   } finally {
     connectingNow = false;
   }
@@ -1221,14 +1235,97 @@ function wireEvents() {
       if (Store.config.api && state.connected) Store.pushState(cloudPayload()).catch(() => {});
     }
   });
-  window.addEventListener("offline", () => toast("You are offline — cached songs still play", "error"));
+  window.addEventListener("offline", () => { setSync("offline"); toast("You are offline — songs play from your saved cache", "error"); });
   window.addEventListener("online", () => { if (Store.config.api) connectCloud().then(() => render()); });
+}
+
+/* ================= offline cache (every song, no network) ================= */
+let cacheAllRunning = false;
+let cacheAllKey = ""; // url list last handed to the service worker
+let cacheToastKey = ""; // song list we already announced (avoid repeat toasts)
+
+function cloudSongUrls() {
+  return state.songs.filter(s => s.source === "cloud")
+    .map(s => Store.config.api + "/api/songs/" + encodeURIComponent(s.id));
+}
+function fmtMB(bytes) {
+  return bytes >= 1048576 ? Math.round(bytes / 1048576) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
+}
+
+/* Ask the service worker to download every cloud song into its
+   audio cache (already-cached songs are skipped by the SW). */
+function startOfflineCache() {
+  if (!("serviceWorker" in navigator) || !navigator.onLine || !Store.config.api) return;
+  const urls = cloudSongUrls();
+  if (!urls.length) return;
+  const key = urls.join("|");
+  if (cacheAllRunning || key === cacheAllKey) return;
+  cacheAllKey = key;
+  navigator.serviceWorker.ready.then(reg => {
+    const sw = reg.active || navigator.serviceWorker.controller;
+    if (!sw) { cacheAllKey = ""; return; }
+    cacheAllRunning = true;
+    sw.postMessage({ type: "CACHE_ALL", urls: urls });
+    if (cacheToastKey !== key) {
+      cacheToastKey = key;
+      toast("Saving " + urls.length + " songs for offline use…", "ok");
+    }
+  }).catch(() => { cacheAllKey = ""; });
+}
+
+function wireSwMessages() {
+  if (!("serviceWorker" in navigator)) return;
+  let watchdog = 0;
+  const armWatchdog = () => {
+    clearTimeout(watchdog);
+    watchdog = setTimeout(() => {
+      // SW went silent mid-download (terminated by the browser) —
+      // reset and ask again; already-saved songs are skipped.
+      if (!cacheAllRunning) return;
+      cacheAllRunning = false;
+      cacheAllKey = "";
+      startOfflineCache();
+    }, 60000);
+  };
+
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    const m = e.data || {};
+    if (m.type === "CACHE_PROGRESS") {
+      if (!cacheAllRunning) return;
+      armWatchdog();
+      const label = $("#syncLabel");
+      if (label) {
+        label.textContent = "Saving songs offline " + m.done + "/" + m.total +
+          (m.bytes ? " · " + fmtMB(m.bytes) : "") + "…";
+      }
+    } else if (m.type === "CACHE_DONE") {
+      clearTimeout(watchdog);
+      cacheAllRunning = false;
+      const mb = fmtMB(m.bytes || 0);
+      if (m.failed) {
+        cacheAllKey = ""; // let a later connect retry the misses
+        toast(m.done + " songs saved offline (" + mb + ") — " + m.failed + " failed", "error");
+      } else if (m.total) {
+        toast("Ready offline: " + m.done + " songs saved (" + mb + ")", "ok");
+      }
+      setSync(state.connected ? "on" : (navigator.onLine ? "off" : "offline"));
+    }
+  });
+  // a service-worker update mid-download cancels the old worker — restart
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (cacheAllRunning) {
+      cacheAllRunning = false;
+      cacheAllKey = "";
+      startOfflineCache();
+    }
+  });
 }
 
 /* ================= start ================= */
 async function start() {
   fillStaticIcons();
   wireEvents();
+  wireSwMessages();
   await loadLocalState();
   updateHistoryButtons();
   await connectCloud();

@@ -8,7 +8,7 @@
                Worker (wrangler secret put API_TOKEN).
    ========================================================= */
 window.PLAYER_CONFIG = {
-  API_BASE: "",      // e.g. "https://don-moen-player-api.your-subdomain.workers.dev"
+  API_BASE: "https://don-moen-player-api.shinumaths989.workers.dev",
   API_TOKEN: "",     // same value as the worker's API_TOKEN secret
   MAX_UPLOAD_MB: 100
 };

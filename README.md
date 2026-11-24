@@ -64,7 +64,7 @@ caching and the resume prompt.
 ### Step 1 — Create the R2 bucket
 
 1. Cloudflare dashboard → **R2 Object Storage** → enable R2 (free tier: 10 GB storage/month).
-2. Create a bucket named **`don-moen-music`** (or change `bucket_name` in `worker/wrangler.toml`).
+2. Create a bucket named **`don-moen-hymns`** (or change `bucket_name` in `worker/wrangler.toml`).
 
 ### Step 2 — Deploy the Worker (the API)
 
@@ -72,11 +72,11 @@ caching and the resume prompt.
 cd worker
 npm install
 npx wrangler login                       # first time only
-npx wrangler r2 bucket create don-moen-music   # skip if you created it in the dashboard
+npx wrangler r2 bucket create don-moen-hymns   # skip if you created it in the dashboard
 npx wrangler deploy
 ```
 
-Note the URL it prints, e.g. `https://don-moen-player-api.<account>.workers.dev`.
+Note the URL it prints, e.g. `https://don-moen-player-api.shinumaths989.workers.dev`.
 
 Then protect writes with a secret (recommended):
 
@@ -105,8 +105,8 @@ Edit `js/config.js`:
 
 ```js
 window.PLAYER_CONFIG = {
-  API_BASE: "https://don-moen-player-api.<account>.workers.dev",
-  API_TOKEN: "the-same-value-you-put-in-wrangler",   // or "" if you skipped the secret
+  API_BASE: "https://don-moen-player-api.shinumaths989.workers.dev",
+  API_TOKEN: "",   // the value you set with `wrangler secret put API_TOKEN` ("" if you skipped it)
   MAX_UPLOAD_MB: 100
 };
 ```

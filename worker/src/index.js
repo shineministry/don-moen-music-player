@@ -85,28 +85,28 @@ async function handle(request, env, url) {
 
   /* ---------- library listing ---------- */
   if (path === "/api/library" && request.method === "GET") {
-    const songs = [];
-    let cursor;
-    let pages = 0;
-    do {
-      const listed = await env.BUCKET.list({ prefix: SONGS_PREFIX, cursor });
-      for (const obj of listed.objects) {
-        if (obj.key.endsWith("/")) continue;
-        const meta = obj.customMetadata || {};
-        songs.push({
-          id: decodeURIComponent(obj.key.slice(SONGS_PREFIX.length)),
-          title: meta.title || decodeURIComponent(obj.key.slice(SONGS_PREFIX.length)),
-          artist: meta.artist || "",
-          album: meta.album || "",
-          duration: Number(meta.duration) || 0,
-          addedAt: obj.uploaded ? new Date(obj.uploaded).getTime() : Date.now(),
-          size: obj.size,
-          source: "cloud"
-        });
+    const listed = await env.BUCKET.list({ prefix: SONGS_PREFIX });
+    const entries = listed.objects.filter(o => !o.key.endsWith("/"));
+
+    // list() may omit custom metadata → head() the objects that need it
+    const songs = await Promise.all(entries.map(async (obj) => {
+      let meta = obj.customMetadata;
+      if (!meta || !meta.title) {
+        try { const head = await env.BUCKET.head(obj.key); meta = (head && head.customMetadata) || {}; }
+        catch (e) { meta = {}; }
       }
-      cursor = listed.truncated ? listed.cursor : undefined;
-      pages++;
-    } while (cursor && pages < 20);
+      const id = decodeURIComponent(obj.key.slice(SONGS_PREFIX.length));
+      return {
+        id,
+        title: meta.title || id,
+        artist: meta.artist || "",
+        album: meta.album || "",
+        duration: Number(meta.duration) || 0,
+        addedAt: obj.uploaded ? new Date(obj.uploaded).getTime() : Date.now(),
+        size: obj.size,
+        source: "cloud"
+      };
+    }));
 
     songs.sort((a, b) => b.addedAt - a.addedAt);
     return json({ songs });
@@ -156,7 +156,7 @@ async function handle(request, env, url) {
       return json({ ok: true });
     }
 
-    if (request.method === "GET") {
+    if (request.method === "GET" || request.method === "HEAD") {
       const obj = await env.BUCKET.get(key);
       if (!obj) throw new HttpError("Song not found", 404);
 
@@ -165,8 +165,14 @@ async function handle(request, env, url) {
       const baseHeaders = {
         "Content-Type": type,
         "Accept-Ranges": "bytes",
+        "Content-Length": String(total),
         "Cache-Control": "public, max-age=31536000, immutable"
       };
+
+      // HEAD → headers only (size/type), no body
+      if (request.method === "HEAD") {
+        return new Response(null, { status: 200, headers: baseHeaders });
+      }
 
       const rangeHeader = request.headers.get("Range");
       if (rangeHeader) {
@@ -199,7 +205,7 @@ async function handle(request, env, url) {
       const full = await obj.arrayBuffer();
       return new Response(full, {
         status: 200,
-        headers: Object.assign({}, baseHeaders, { "Content-Length": String(total) })
+        headers: baseHeaders
       });
     }
   }
@@ -212,7 +218,7 @@ export default {
     const allowOrigin = env.ALLOWED_ORIGIN || "*";
     const cors = {
       "Access-Control-Allow-Origin": allowOrigin,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Song-Title, X-Song-Artist, X-Song-Album, X-Song-Duration, X-Song-Id",
       "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges, X-Cache",
       "Access-Control-Max-Age": "86400"

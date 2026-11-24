@@ -10,7 +10,7 @@ ALLOWED_ORIGIN = "*"
 # The R2 bucket that holds your songs + the queue (state.json)
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "don-moen-music"
+bucket_name = "don-moen-hymns"
 
 # Protect uploads/queue-writes with a secret:
 #   npx wrangler secret put API_TOKEN

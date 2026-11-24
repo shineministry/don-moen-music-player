@@ -6,7 +6,7 @@
      so songs replay instantly without re-downloading.
    • The app shell is cached so the player opens offline.
    ========================================================= */
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = "dmp-shell-" + VERSION;
 const AUDIO_CACHE = "dmp-audio-" + VERSION;
 const KEEP = [SHELL_CACHE, AUDIO_CACHE];

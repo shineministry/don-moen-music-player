@@ -950,7 +950,7 @@ function learnCloudDurations() {
       if (d > 0 && (song.duration || 0) <= 0) {
         song.duration = d;
         durAttempts.delete(song.id);
-        persist(false);
+        persist(); // sync → learned durations land in state.json for all devices
         renderContent();
       }
       setTimeout(probeNext, 600);

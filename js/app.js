@@ -33,6 +33,7 @@ const ICONS = {
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
   chevL: '<path d="m14.5 18-6-6 6-6"/>',
   chevR: '<path d="m9.5 6 6 6-6 6"/>',
+  chevD: '<path d="m6 9.5 6 6 6-6"/>',
   upload: '<path d="M20.5 15.5V19a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-3.5"/><path d="m7.5 8.5 4.5-5 4.5 5"/><path d="M12 3.5V15.5"/>',
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
   heartFill: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="currentColor" stroke="none"/>',
@@ -46,6 +47,7 @@ const ICONS = {
   mute: '<path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor" stroke="none"/><path d="m16.5 9.5 5 5M21.5 9.5l-5 5"/>',
   queue: '<path d="M21 15V6"/><path d="M18.5 18.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3M16 6H3M12 18H3"/>',
   full: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+  expand: '<path d="M9 4H4v5"/><path d="M15 4h5v5"/><path d="M9 20H4v-5"/><path d="M15 20h5v-5"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 1.9"/>',
   note: '<path d="M9 17.5V6.3l9.5-2v11"/><ellipse cx="6.6" cy="17.6" rx="2.5" ry="2.2"/><ellipse cx="16.1" cy="15.4" rx="2.5" ry="2.2"/>',
   trash: '<path d="M4 7h16M9.5 7V4.6h5V7M6.6 7l.9 13.4h9L17.4 7"/>',
@@ -106,11 +108,14 @@ function viewList() {
 }
 
 /* ================= covers ================= */
-function coverStyle(id) {
+function hueOf(id) {
   let h = 7;
   id = String(id || "?");
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  const hue = h % 360;
+  return h % 360;
+}
+function coverStyle(id) {
+  const hue = hueOf(id);
   return "background:linear-gradient(135deg,hsl(" + hue + " 55% 45%),hsl(" + ((hue + 50) % 360) + " 60% 20%))";
 }
 function coverHTML(song, size) {
@@ -217,6 +222,8 @@ async function playAt(i, startAt) {
     audio.load();
     await audio.play();
   } catch (err) {
+    // a pause / next-track that interrupts startup is not a failure
+    if (err && err.name === "AbortError") return;
     console.error(err);
     toast('Could not play "' + song.title + '" — ' + (err.message || "error"), "error");
   }
@@ -366,7 +373,7 @@ audio.addEventListener("play", () => {
   updateMediaSession();
   document.title = (currentSong() ? currentSong().title + " • " : "") + "Don Moen Music Player";
 });
-audio.addEventListener("playing", () => { switching = false; });
+audio.addEventListener("playing", () => { switching = false; mediaRetries = 0; });
 audio.addEventListener("pause", () => {
   renderPlayer();
   renderContent();
@@ -375,9 +382,18 @@ audio.addEventListener("pause", () => {
   document.title = "Don Moen Music Player";
 });
 audio.addEventListener("ended", () => nextTrack(true));
+let mediaRetries = 0; // consecutive silent retries after a media error
 audio.addEventListener("error", () => {
   if (!audio.src) return;
   const song = currentSong();
+  // A rare transient fetch/demux hiccup shouldn't kill playback —
+  // reload the track once or twice at the same spot before complaining.
+  if (song && state.index >= 0 && mediaRetries < 2) {
+    mediaRetries++;
+    const pos = (isFinite(audio.currentTime) && audio.currentTime > 0) ? audio.currentTime : (state.position || 0);
+    setTimeout(() => { if (audio.error && state.index >= 0) playAt(state.index, pos); }, 700);
+    return;
+  }
   toast('Playback failed for "' + (song ? song.title : "song") + '"', "error");
 });
 
@@ -392,6 +408,7 @@ function updateProgressUI() {
   seek.style.setProperty("--pct", pct.toFixed(2) + "%");
   $("#curTime").textContent = fmt(cur);
   $("#durTime").textContent = dur > 0 ? fmt(dur) : "0:00";
+  updateNpProgress();
 }
 
 function updateMediaSession() {
@@ -474,13 +491,17 @@ function tableHTML(list, opts) {
 }
 
 function cardHTML(s) {
+  const bits = [];
+  if (s.artist) bits.push(s.artist);
+  else bits.push("Unknown artist");
+  if (s.duration > 0) bits.push(fmt(s.duration));
   return (
-    '<div class="card" data-play-id="' + esc(s.id) + '">' +
+    '<div class="card" data-play-id="' + esc(s.id) + '" title="' + esc(s.title) + '">' +
       '<div class="card-cover">' + coverHTML(s) +
-        '<button class="fab" title="Play">' + icon("play", 22) + "</button>" +
+        '<button class="fab" title="Play">' + icon("play", 24) + "</button>" +
       "</div>" +
       '<div class="card-title">' + esc(s.title) + "</div>" +
-      '<div class="card-sub">' + esc(s.artist || "Unknown artist") + "</div>" +
+      '<div class="card-sub">' + esc(bits.join(" • ")) + "</div>" +
     "</div>"
   );
 }
@@ -629,6 +650,7 @@ function renderPlayer() {
   vb.value = String(Math.round((state.muted ? 0 : state.volume) * 100));
   vb.style.setProperty("--pct", (state.muted ? 0 : state.volume * 100).toFixed(1) + "%");
   updateProgressUI();
+  renderNpOverlay();
 }
 
 function renderRight() {
@@ -655,6 +677,55 @@ function renderRight() {
           "</div>").join("")
       : '<div class="qrow-empty">End of the queue.</div>');
 }
+
+/* ================= expanded now playing ================= */
+function npOpen() { return !$("#npOverlay").hidden; }
+
+function openNp() {
+  if (!currentSong()) { toast("Nothing is playing"); return; }
+  $("#npOverlay").hidden = false;
+  renderNpOverlay();
+}
+function closeNp() { $("#npOverlay").hidden = true; }
+function toggleNp() { npOpen() ? closeNp() : openNp(); }
+
+function renderNpOverlay() {
+  const ov = $("#npOverlay");
+  if (ov.hidden) return;
+  const s = currentSong();
+  ov.style.setProperty("--np-hue", s ? hueOf(s.id) : 220);
+  $("#npOvCover").innerHTML = s ? coverHTML(s, 300) : icon("note", 64);
+  $("#npOvTitle").textContent = s ? s.title : "Nothing playing";
+  $("#npOvArtist").textContent = s ? (s.artist || "Unknown artist") + (s.album ? " • " + s.album : "") : "—";
+  $("#npOvCtx").textContent = s ? s.title : "—";
+  const liked = !!(s && state.liked.has(s.id));
+  setIco($("#btnNpLike"), liked ? "heartFill" : "heart", 30);
+  $("#btnNpLike").classList.toggle("on", liked);
+  setIco($("#btnNpPlay"), audio.paused ? "play" : "pause", 30);
+  $("#btnNpShuffle").classList.toggle("on", state.shuffle);
+  $("#btnNpRepeat").classList.toggle("on", state.repeat !== "off");
+  $("#btnNpRepeat").title = state.repeat === "off" ? "Repeat off" : state.repeat === "all" ? "Repeat all" : "Repeat one";
+  setIco($("#btnNpMute"), state.muted || state.volume === 0 ? "mute" : "volume", 18);
+  const vb = $("#npOvVol");
+  vb.value = String(Math.round((state.muted ? 0 : state.volume) * 100));
+  vb.style.setProperty("--pct", ((state.muted ? 0 : state.volume) * 100).toFixed(1) + "%");
+  updateNpProgress();
+}
+
+function updateNpProgress() {
+  if (ovHidden()) return;
+  const dur = isFinite(audio.duration) && audio.duration > 0
+    ? audio.duration
+    : (currentSong() && currentSong().duration) || 0;
+  const cur = audio.currentTime || 0;
+  const pct = dur > 0 ? clamp(cur / dur, 0, 1) * 100 : 0;
+  const seek = $("#npOvSeek");
+  if (!seeking) seek.value = String(Math.round(pct * 10));
+  seek.style.setProperty("--pct", pct.toFixed(2) + "%");
+  $("#npOvCur").textContent = fmt(cur);
+  $("#npOvDur").textContent = dur > 0 ? fmt(dur) : "0:00";
+}
+function ovHidden() { return $("#npOverlay").hidden; }
 
 /* ================= views ================= */
 const histStack = ["home"];
@@ -1147,6 +1218,72 @@ function wireEvents() {
     else document.documentElement.requestFullscreen().catch(() => toast("Full screen not allowed"));
   });
 
+  /* --- expanded now-playing view --- */
+  $("#btnExpand").addEventListener("click", toggleNp);
+  $("#npCover").addEventListener("click", openNp); // click the artwork to expand
+  $("#npCover").style.cursor = "pointer";
+  $("#npCover").title = "Expand player";
+  $("#btnNpMin").addEventListener("click", closeNp);
+  $("#btnNpQueue").addEventListener("click", () => {
+    closeNp();
+    const bar = $("#rightbar");
+    if (bar.hidden) $("#btnQueue").click();
+  });
+  $("#btnNpPlay").addEventListener("click", togglePlay);
+  $("#btnNpPrev").addEventListener("click", prevTrack);
+  $("#btnNpNext").addEventListener("click", () => nextTrack(false));
+  $("#btnNpShuffle").addEventListener("click", () => {
+    state.shuffle = !state.shuffle;
+    persist();
+    renderPlayer();
+    toast(state.shuffle ? "Shuffle on" : "Shuffle off");
+  });
+  $("#btnNpRepeat").addEventListener("click", () => {
+    state.repeat = state.repeat === "off" ? "all" : state.repeat === "all" ? "one" : "off";
+    persist();
+    renderPlayer();
+    toast(state.repeat === "off" ? "Repeat off" : state.repeat === "all" ? "Repeat all" : "Repeat one");
+  });
+  $("#btnNpLike").addEventListener("click", () => {
+    const s = currentSong();
+    if (s) toggleLike(s.id);
+    else toast("Nothing is playing");
+  });
+  $("#btnNpMute").addEventListener("click", () => {
+    state.muted = !state.muted;
+    audio.muted = state.muted;
+    persist();
+    renderPlayer();
+  });
+  $("#btnNpFull").addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => toast("Full screen not allowed"));
+  });
+
+  const npSeek = $("#npOvSeek");
+  npSeek.addEventListener("pointerdown", () => { seeking = true; });
+  npSeek.addEventListener("input", () => {
+    seeking = true;
+    const dur = isFinite(audio.duration) ? audio.duration : 0;
+    const pct = Number(npSeek.value) / 1000;
+    npSeek.style.setProperty("--pct", (pct * 100).toFixed(2) + "%");
+    $("#npOvCur").textContent = fmt(pct * dur);
+    if (dur > 0) audio.currentTime = pct * dur;
+  });
+  npSeek.addEventListener("change", () => { seeking = false; });
+
+  const npVol = $("#npOvVol");
+  npVol.addEventListener("input", () => {
+    const v = Number(npVol.value) / 100;
+    state.volume = v;
+    state.muted = v === 0;
+    audio.volume = v;
+    audio.muted = state.muted;
+    npVol.style.setProperty("--pct", npVol.value + "%");
+    renderPlayer();
+  });
+  npVol.addEventListener("change", () => persist());
+
   const seek = $("#seekBar");
   seek.addEventListener("pointerdown", () => { seeking = true; });
   seek.addEventListener("input", () => {
@@ -1215,7 +1352,10 @@ function wireEvents() {
   document.addEventListener("keydown", e => {
     const t = (e.target.tagName || "").toLowerCase();
     if (t === "input" || t === "textarea" || e.target.isContentEditable) return;
-    if (e.key === "Escape") { closeUpload(); if (!$("#resumeOverlay").hidden) closeResume(true); return; }
+    if (e.key === "Escape") {
+      if (!ovHidden()) { closeNp(); return; }
+      closeUpload(); if (!$("#resumeOverlay").hidden) closeResume(true); return;
+    }
     if (e.code === "Space") { e.preventDefault(); togglePlay(); }
     else if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) nextTrack(false); else if (isFinite(audio.duration)) { audio.currentTime = Math.min(audio.duration, audio.currentTime + 5); saveProgress(false); } }
     else if (e.key === "ArrowLeft") { e.preventDefault(); if (e.shiftKey) prevTrack(); else { audio.currentTime = Math.max(0, audio.currentTime - 5); saveProgress(false); } }

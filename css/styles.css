@@ -375,7 +375,12 @@ input { font-family: inherit; }
   font-size: 14px;
   flex: 1;
   min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* long titles wrap to three lines instead of clipping */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
   padding-right: 34px;
 }
 .shortcut .fab {
@@ -419,25 +424,27 @@ input { font-family: inherit; }
 /* ---------- cards ---------- */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
 }
 .card {
   background: var(--bg-elevated);
   border-radius: var(--radius);
   padding: 16px;
   position: relative;
-  transition: background 0.3s ease;
+  transition: background 0.3s ease, transform 0.25s ease;
   cursor: pointer;
 }
-.card:hover { background: var(--bg-press); }
+.card:hover { background: var(--bg-press); transform: translateY(-2px); }
 .card-cover { position: relative; margin-bottom: 14px; }
 .card-cover .cover {
   width: 100%;
+  height: auto; /* the base .cover height would squash the square */
   aspect-ratio: 1 / 1;
-  border-radius: 6px;
+  border-radius: 8px;
   box-shadow: var(--shadow);
 }
+.card-cover .cover svg { width: 44%; height: 44%; }
 .card .fab {
   position: absolute;
   right: 8px; bottom: 8px;
@@ -456,13 +463,19 @@ input { font-family: inherit; }
 .card .fab:hover { transform: scale(1.05); background: var(--green-bright); }
 .card-title {
   font-weight: 700;
-  font-size: 15px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  margin-bottom: 4px;
+  font-size: 16px;
+  line-height: 1.35;
+  /* long names (e.g. full playlist titles) wrap to three lines */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 6px;
 }
 .card-sub {
   color: var(--sub);
   font-size: 13px;
+  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -877,6 +890,162 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
 .player-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
 /* =========================================================
+   EXPANDED NOW PLAYING (Spotify-style full view)
+   ========================================================= */
+.np-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  /* --np-hue is set from the cover's generated colour */
+  background:
+    radial-gradient(120% 80% at 50% -10%, hsl(var(--np-hue, 220) 42% 34%) 0%, transparent 62%),
+    linear-gradient(180deg, hsl(var(--np-hue, 220) 38% 22%) 0%, #121212 68%, #0b0b0b 100%);
+  color: var(--white);
+  animation: npIn 0.28s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.np-overlay[hidden] { display: none; }
+@keyframes npIn {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+.np-ov-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  flex-shrink: 0;
+}
+.np-ov-head .round { background: rgba(0, 0, 0, 0.35); }
+.np-ov-head .round:hover { background: rgba(0, 0, 0, 0.6); }
+.np-ov-ctx { flex: 1; min-width: 0; text-align: center; }
+.np-ov-ctx-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+.np-ov-ctx-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-ov-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(14px, 2.6vh, 26px);
+  padding: 0 24px 24px;
+  overflow-y: auto;
+}
+
+.np-ov-cover {
+  width: min(46vh, 62vw, 460px);
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.6);
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #535353, #2a2a2a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.np-ov-cover .cover { width: 100%; height: 100%; border-radius: 0; }
+.np-ov-cover .cover svg { width: 42%; height: 42%; }
+
+.np-ov-meta {
+  width: min(46vh, 62vw, 460px);
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.np-ov-text { flex: 1; min-width: 0; }
+.np-ov-title {
+  font-size: clamp(20px, 3vw, 30px);
+  font-weight: 800;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.np-ov-artist {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 15px;
+  margin-top: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-ov-like { color: rgba(255, 255, 255, 0.7); flex-shrink: 0; }
+.np-ov-like svg { width: 30px; height: 30px; }
+.np-ov-like:hover { color: #fff; transform: scale(1.1); }
+.np-ov-like.on { color: var(--green); }
+
+.np-ov-progress {
+  width: min(46vh, 62vw, 460px);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.np-ov-times {
+  display: flex;
+  justify-content: space-between;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-ov-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(46vh, 62vw, 460px);
+  max-width: 100%;
+}
+.np-ov-controls .icon-btn { color: rgba(255, 255, 255, 0.8); }
+.np-ov-controls .icon-btn:hover { color: #fff; }
+.np-ov-controls .icon-btn.on { color: var(--green); }
+.np-ov-controls .icon-btn svg { width: 26px; height: 26px; }
+.np-ov-play {
+  width: 64px;
+  height: 64px;
+  transition: transform 0.12s ease;
+}
+.np-ov-play svg { width: 30px; height: 30px; }
+.np-ov-play:hover { transform: scale(1.06); }
+
+.np-ov-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(46vh, 62vw, 460px);
+  max-width: 100%;
+}
+.np-ov-foot .bar-wrap.vol { flex: 1; max-width: none; }
+.np-ov-foot .icon-btn { color: rgba(255, 255, 255, 0.7); }
+
+@media (max-width: 720px) {
+  .np-ov-cover, .np-ov-meta, .np-ov-progress, .np-ov-controls, .np-ov-foot { width: min(78vw, 44vh, 420px); }
+  .np-ov-controls .icon-btn svg { width: 22px; height: 22px; }
+  .np-ov-play { width: 54px; height: 54px; }
+  .np-ov-play svg { width: 26px; height: 26px; }
+}
+
+/* =========================================================
    MODALS
    ========================================================= */
 .overlay {
@@ -1112,6 +1281,11 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
     z-index: 40;
     box-shadow: var(--shadow);
   }
+  /* the right-hand cluster spilled left over the seek bar below ~1100px —
+     fullscreen lives in the expanded view, so drop it and slim the slider */
+  #btnFull { display: none; }
+  .player-right { gap: 8px; }
+  .player-right .bar-wrap { flex: 0 0 64px; max-width: 64px; }
 }
 @media (max-width: 860px) {
   :root { --sidebar-w: 76px; }
@@ -1125,6 +1299,9 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
   .topbar-search { width: min(240px, 40vw); }
   .thead, .trow { grid-template-columns: 32px minmax(140px, 2fr) 90px; }
   .trow-album, .trow-date, .thead .cell-album, .thead .cell-date { display: none; }
+  /* mute + like move into the expanded now-playing view so the
+     title keeps breathing room and nothing overlaps the seek bar */
+  #btnMute, #btnLike { display: none; }
 }
 @media (max-width: 640px) {
   :root { --player-h: 76px; }
@@ -1132,8 +1309,14 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
   #app .sidebar { display: none; }
   #app.with-right { grid-template-columns: minmax(0, 1fr); }
   .main { border-radius: 0; }
-  .player { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 0 10px; }
+  /* keep all three sections on ONE row — with only two columns the
+     queue/expand row wrapped and was clipped below the bar */
+  .player { grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; padding: 0 10px; }
   .player-center .progress-row { display: none; }
+  .player-center .controls { gap: 10px; }
   .player-right .bar-wrap, #btnMute, #btnFull { display: none; }
+  /* on phones shuffle/repeat/like live in the expanded now-playing view,
+     so the bar keeps room for a readable title */
+  #btnShuffle, #btnRepeat, #btnLike { display: none; }
   .topbar-actions .btn-ghost { display: none; }
 }

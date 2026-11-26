@@ -128,6 +128,7 @@
     <button class="icon-btn" id="btnQueue" title="Queue"><span class="nav-ico" data-ico="queue"></span></button>
     <button class="icon-btn" id="btnMute" title="Mute"><span class="nav-ico" data-ico="volume"></span></button>
     <div class="bar-wrap vol"><input type="range" id="volBar" min="0" max="100" value="100" step="1" aria-label="Volume" /></div>
+    <button class="icon-btn" id="btnExpand" title="Expand player"><span class="nav-ico" data-ico="expand"></span></button>
     <button class="icon-btn" id="btnFull" title="Full screen"><span class="nav-ico" data-ico="full"></span></button>
   </div>
 </footer>
@@ -184,6 +185,49 @@
       </div>
       <button class="btn-green" id="btnAddUrlGo">Add to library</button>
       <p class="pane-hint">URL songs are saved in your library list; the file itself is streamed from that address and cached after first play.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= EXPANDED NOW PLAYING ======================= -->
+<div class="np-overlay" id="npOverlay" hidden>
+  <header class="np-ov-head">
+    <button class="round" id="btnNpMin" title="Minimize"><span class="nav-ico" data-ico="chevD" data-size="22"></span></button>
+    <div class="np-ov-ctx">
+      <span class="np-ov-ctx-label">Now playing</span>
+      <span class="np-ov-ctx-title" id="npOvCtx">—</span>
+    </div>
+    <button class="round" id="btnNpQueue" title="Queue"><span class="nav-ico" data-ico="queue" data-size="18"></span></button>
+  </header>
+
+  <div class="np-ov-body">
+    <div class="np-ov-cover" id="npOvCover"><span class="nav-ico" data-ico="note" data-size="64"></span></div>
+
+    <div class="np-ov-meta">
+      <div class="np-ov-text">
+        <div class="np-ov-title" id="npOvTitle">Nothing playing</div>
+        <div class="np-ov-artist" id="npOvArtist">—</div>
+      </div>
+      <button class="icon-btn np-ov-like" id="btnNpLike" title="Save to Liked Songs"><span class="nav-ico" data-ico="heart"></span></button>
+    </div>
+
+    <div class="np-ov-progress">
+      <div class="bar-wrap"><input type="range" id="npOvSeek" min="0" max="1000" value="0" step="1" aria-label="Seek" /></div>
+      <div class="np-ov-times"><span id="npOvCur">0:00</span><span id="npOvDur">0:00</span></div>
+    </div>
+
+    <div class="np-ov-controls">
+      <button class="icon-btn" id="btnNpShuffle" title="Shuffle"><span class="nav-ico" data-ico="shuffle"></span></button>
+      <button class="icon-btn" id="btnNpPrev" title="Previous"><span class="nav-ico" data-ico="prev"></span></button>
+      <button class="play-btn np-ov-play" id="btnNpPlay" title="Play"><span class="nav-ico" data-ico="play"></span></button>
+      <button class="icon-btn" id="btnNpNext" title="Next"><span class="nav-ico" data-ico="next"></span></button>
+      <button class="icon-btn" id="btnNpRepeat" title="Repeat"><span class="nav-ico" data-ico="repeat"></span></button>
+    </div>
+
+    <div class="np-ov-foot">
+      <button class="icon-btn" id="btnNpMute" title="Mute"><span class="nav-ico" data-ico="volume"></span></button>
+      <div class="bar-wrap vol"><input type="range" id="npOvVol" min="0" max="100" value="100" step="1" aria-label="Volume" /></div>
+      <button class="icon-btn" id="btnNpFull" title="Full screen"><span class="nav-ico" data-ico="full"></span></button>
     </div>
   </div>
 </div>
